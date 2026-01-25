@@ -1,0 +1,403 @@
+﻿#include <iostream>
+#include <cstdlib>
+#include <ctime>
+#include <stdio.h>
+#include <termios.h>
+#include <cmath>
+
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <signal.h>
+
+#include "colors.h"
+#include "Matrix.h"
+
+using namespace std;
+
+
+/**************************************************************/
+/**************** Linux System Functions **********************/
+/**************************************************************/
+
+char saved_key = 0;
+int tty_raw(int fd);   /* put terminal into a raw mode */
+int tty_reset(int fd);   /* restore terminal's mode */
+  
+/* Read 1 character - echo defines echo mode */
+char getch() {
+  char ch;
+  int n;
+  while (1) {
+    tty_raw(0);
+    n = read(0, &ch, 1);
+    tty_reset(0);
+    if (n > 0)
+      break;
+    else if (n < 0) {
+      if (errno == EINTR) {
+        if (saved_key != 0) {
+          ch = saved_key;
+          saved_key = 0;
+          break;
+        }
+      }
+    }
+  }
+  return ch;
+}
+
+void sigint_handler(int signo) {
+  // cout << "SIGINT received!" << endl;
+  // do nothing;
+}
+
+void sigalrm_handler(int signo) {
+  alarm(1);
+  saved_key = 's';
+}
+
+void registerInterrupt() {
+  struct sigaction act, oact;
+  act.sa_handler = sigint_handler;
+  sigemptyset(&act.sa_mask);
+#ifdef SA_INTERRUPT
+  act.sa_flags = SA_INTERRUPT;
+#else
+  act.sa_flags = 0;
+#endif
+  if (sigaction(SIGINT, &act, &oact) < 0) {
+    cerr << "sigaction error" << endl;
+    exit(1);
+  }
+}
+
+void registerAlarm() {
+  struct sigaction act, oact;
+  act.sa_handler = sigalrm_handler;
+  sigemptyset(&act.sa_mask);
+#ifdef SA_INTERRUPT
+  act.sa_flags = SA_INTERRUPT;
+#else
+  act.sa_flags = 0;
+#endif
+  if (sigaction(SIGALRM, &act, &oact) < 0) {
+    cerr << "sigaction error" << endl;
+    exit(1);
+  }
+  alarm(1);
+}
+
+/**************************************************************/
+/**************** Tetris Blocks Definitions *******************/
+/**************************************************************/
+#define MAX_BLK_TYPES 7
+#define MAX_BLK_DEGREES 4
+
+int T0D0[] = { 1, 1, 1, 1, -1 };
+int T0D1[] = { 1, 1, 1, 1, -1 };
+int T0D2[] = { 1, 1, 1, 1, -1 };
+int T0D3[] = { 1, 1, 1, 1, -1 };
+
+int T1D0[] = { 0, 1, 0, 1, 1, 1, 0, 0, 0, -1 };
+int T1D1[] = { 0, 1, 0, 0, 1, 1, 0, 1, 0, -1 };
+int T1D2[] = { 0, 0, 0, 1, 1, 1, 0, 1, 0, -1 };
+int T1D3[] = { 0, 1, 0, 1, 1, 0, 0, 1, 0, -1 };
+
+int T2D0[] = { 1, 0, 0, 1, 1, 1, 0, 0, 0, -1 };
+int T2D1[] = { 0, 1, 1, 0, 1, 0, 0, 1, 0, -1 };
+int T2D2[] = { 0, 0, 0, 1, 1, 1, 0, 0, 1, -1 };
+int T2D3[] = { 0, 1, 0, 0, 1, 0, 1, 1, 0, -1 };
+
+int T3D0[] = { 0, 0, 1, 1, 1, 1, 0, 0, 0, -1 };
+int T3D1[] = { 0, 1, 0, 0, 1, 0, 0, 1, 1, -1 };
+int T3D2[] = { 0, 0, 0, 1, 1, 1, 1, 0, 0, -1 };
+int T3D3[] = { 1, 1, 0, 0, 1, 0, 0, 1, 0, -1 };
+
+int T4D0[] = { 0, 1, 0, 1, 1, 0, 1, 0, 0, -1 };
+int T4D1[] = { 1, 1, 0, 0, 1, 1, 0, 0, 0, -1 };
+int T4D2[] = { 0, 1, 0, 1, 1, 0, 1, 0, 0, -1 };
+int T4D3[] = { 1, 1, 0, 0, 1, 1, 0, 0, 0, -1 };
+
+int T5D0[] = { 0, 1, 0, 0, 1, 1, 0, 0, 1, -1 };
+int T5D1[] = { 0, 0, 0, 0, 1, 1, 1, 1, 0, -1 };
+int T5D2[] = { 0, 1, 0, 0, 1, 1, 0, 0, 1, -1 };
+int T5D3[] = { 0, 0, 0, 0, 1, 1, 1, 1, 0, -1 };
+
+int T6D0[] = { 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1 };
+int T6D1[] = { 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1 };
+int T6D2[] = { 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, -1 };
+int T6D3[] = { 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1 };
+  
+int *setOfBlockArrays[] = {
+  T0D0, T0D1, T0D2, T0D3,
+  T1D0, T1D1, T1D2, T1D3,
+  T2D0, T2D1, T2D2, T2D3,
+  T3D0, T3D1, T3D2, T3D3,
+  T4D0, T4D1, T4D2, T4D3,
+  T5D0, T5D1, T5D2, T5D3,
+  T6D0, T6D1, T6D2, T6D3,
+};
+
+Matrix *setOfBlockObjects[MAX_BLK_TYPES][MAX_BLK_DEGREES];
+
+// 1차원 배열로 저장된 블록을 2차원 배열로 변환하는 함수
+// 블록의 크기가 2*2, 3*3, 4*4이므로 3가지 케이스를 나눠 반복문 실행
+void initSetOfBlockObjects() {
+    for (int i = 0; i < 7; i++) {
+        for (int j = 0; j < 4; j++) {
+            if ((i*4+j)>= 0 && (i*4+j)<= 3) {
+              setOfBlockObjects[i][j] = new Matrix(setOfBlockArrays[i*4+j],2,2);
+            }
+            if ((i*4+j)>= 4 && (i*4+j)<= 23) {
+              setOfBlockObjects[i][j] = new Matrix(setOfBlockArrays[i*4+j],3,3);
+            }
+            if ((i*4+j)>= 24 && (i*4+j)<= 27) {
+              setOfBlockObjects[i][j] = new Matrix(setOfBlockArrays[i*4+j],4,4);
+            }
+        }
+    }
+};
+
+void drawScreen(Matrix *screen, int wall_depth)
+{
+  int dy = screen->get_dy();
+  int dx = screen->get_dx();
+  int dw = wall_depth;
+  int **array = screen->get_array();
+
+  for (int y = 0; y < dy - dw + 1; y++) {
+    for (int x = dw - 1; x < dx - dw + 1; x++) {
+      if (array[y][x] == 0)
+         cout << "□ ";
+      else if (array[y][x] == 1)
+         cout << "■ ";
+      else if (array[y][x] == 10)
+         cout << "◈ ";
+      else if (array[y][x] == 20)
+         cout << "★ ";
+      else if (array[y][x] == 30)
+         cout << "● ";
+      else if (array[y][x] == 40)
+         cout << "◆ ";
+      else if (array[y][x] == 50)
+         cout << "▲ ";
+      else if (array[y][x] == 60)
+         cout << "♣ ";
+      else if (array[y][x] == 70)
+         cout << "♥ ";
+      else
+         cout << "X ";
+    }
+    cout << endl;
+  }
+}
+
+  
+/**************************************************************/
+/******************** Tetris Main Loop ************************/
+/**************************************************************/
+
+#define SCREEN_DY  10
+#define SCREEN_DX  10
+#define SCREEN_DW  4
+
+#define ARRAY_DY (SCREEN_DY + SCREEN_DW) // 14
+#define ARRAY_DX (SCREEN_DX + 2*SCREEN_DW) //18
+
+int arrayScreen[ARRAY_DY][ARRAY_DX] = {
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+  { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+};
+
+void deleteFullLines(Matrix *iScreen) {
+    Matrix *newRow = new Matrix(1, 10);
+
+    for (int i = 9; i >= 0; i--) {
+        Matrix *fullLine = iScreen->clip(i, 4, i+1, 14);
+        if (fullLine->sum() == 10) {
+            for (int j = i; j > 0; j--) {
+                Matrix *temp = iScreen->clip(j-1, 4, j, 14);
+                iScreen->paste(temp, j, 4);
+                delete temp;
+            }
+            iScreen->paste(newRow, 0, 4);
+            i++;
+        }
+        delete fullLine;
+    }
+    delete newRow;
+}
+
+
+int main(int argc, char *argv[]) {
+  srand((unsigned int)time(NULL));  //처음 난수 생성, seed update
+
+  initSetOfBlockObjects();  // 1차원 배열로 저장된 블록을 2차원 배열
+  
+  char key; //a,d,s,w, ,q
+  int top = 0, left = 8; 
+  bool newBlockNeeded = false; // is block fixed on floor?
+
+  int idxBlockType = rand() % MAX_BLK_TYPES; //type 0~6
+  int idxBlockDegree = 0; //회전 상태 초기화 (0~3:0,90,180,270)
+  
+  Matrix *iScreen = new Matrix((int *) arrayScreen, ARRAY_DY, ARRAY_DX); 
+  Matrix *currBlk = new Matrix(setOfBlockObjects[idxBlockType][idxBlockDegree]);
+  Matrix *tempBlk = iScreen->clip(top, left, top + currBlk->get_dy(), left + currBlk->get_dx());
+  Matrix *tempBlk2 = tempBlk->add(currBlk);
+  delete tempBlk;
+
+  Matrix *oScreen = new Matrix(iScreen);
+  oScreen->paste(tempBlk2, top, left);
+  delete tempBlk2;
+
+  drawScreen(oScreen, SCREEN_DW);
+
+  while ((key = getch()) != 'q') {
+    switch (key) {
+      case 'a': 
+        left--; 
+        break;
+      case 'd': 
+        left++; 
+        break;
+      case 's': 
+        top++; 
+        break;
+      case 'w': {
+        int newDegree = (idxBlockDegree + 1) % MAX_BLK_DEGREES; // 회전
+        Matrix *newBlock = new Matrix(setOfBlockObjects[idxBlockType][newDegree]);
+        delete currBlk; // 기존 블록 삭제
+        currBlk = newBlock; // 새로운 회전 블록으로 교체
+        idxBlockDegree = newDegree;
+        break;
+      }
+      case ' ': {
+        while(true){  // 블록이 바닥에 닿을 때까지 무한루프
+          top++;  // 블록을 아래로 한 칸 이동시킴
+
+          tempBlk = iScreen -> clip(top , left , top + currBlk->get_dy(), left + currBlk->get_dx());
+          tempBlk2 = tempBlk -> add(currBlk);
+          delete tempBlk;
+
+          // 충돌하면 루프 종료
+          if (tempBlk2 -> anyGreaterThan(1)) break;
+          delete tempBlk2;
+        } 
+        delete tempBlk2; 
+        cout << top << endl; //최종 top 위치 출력
+        break; 
+      default :
+        cout << "Wrong key input!!" << endl;
+      }
+    }
+
+    tempBlk = iScreen->clip(top, left, top + currBlk->get_dy(), left + currBlk->get_dx());
+    tempBlk2 = tempBlk->add(currBlk);
+    delete tempBlk;
+
+    if (tempBlk2->anyGreaterThan(1)) {
+      switch (key) {
+        case 'a': 
+          left++; 
+          break;
+        case 'd': 
+          left--; 
+          break;
+        case 's': 
+          top--;
+          newBlockNeeded = true;
+          break;
+        case 'w': 
+          if (idxBlockDegree<=0) {  //각도가 0일 때 각도에서 -1하게 되면 벽이 뚫리는 오류 발생
+            idxBlockDegree = MAX_BLK_DEGREES - 1; //따라서 idxBlockDegree의 케이스를 나누어 벽 충돌 상황 고려
+          }
+          else {
+            idxBlockDegree--; //idxBlockdegree!=0라면 이전 각도로 돌아가면 됨
+          }
+          currBlk = new Matrix(setOfBlockObjects[idxBlockType][idxBlockDegree]);
+          break;
+        case ' ': 
+          top--;
+           
+          for(int i=0; i<currBlk->get_dy(); i++){
+           	for(int j=0; j<currBlk->get_dx(); j++){
+              if (currBlk->get_array()[i][j] == 1) {
+                if(arrayScreen[top+i][left+j] != 1 || arrayScreen[top+i][left+j] != 2){
+                  	arrayScreen[top+i][left+j] = 1;
+                }
+              }
+            }
+          }
+          newBlockNeeded = true;
+          break;
+        default : cout << "Wrong key input!!" << endl;
+      }
+      delete tempBlk2;
+      tempBlk = iScreen->clip(top, left, top + currBlk->get_dy(), left + currBlk->get_dx());
+      tempBlk2 = tempBlk->add(currBlk);    
+      delete tempBlk;
+    }
+    
+    delete oScreen;
+    oScreen = new Matrix(iScreen);
+    oScreen->paste(tempBlk2, top, left);
+    delete tempBlk2;
+    drawScreen(oScreen, SCREEN_DW);
+ 
+    if (newBlockNeeded) {
+      delete iScreen;
+      iScreen = new Matrix(oScreen);
+      newBlockNeeded = false;
+      top = 0;
+      left = 8;
+
+      delete currBlk;
+      idxBlockType = rand() % MAX_BLK_TYPES;
+      idxBlockDegree = 0;
+      currBlk = new Matrix(setOfBlockObjects[idxBlockType][idxBlockDegree]);
+
+      tempBlk = iScreen->clip(top, left, top + currBlk->get_dy(), left + currBlk->get_dx());
+      tempBlk2 = tempBlk->add(currBlk);
+      delete tempBlk;
+
+      deleteFullLines(iScreen);
+
+      delete oScreen;
+      oScreen = new Matrix(iScreen);
+      oScreen->paste(tempBlk2, top, left);
+      delete tempBlk2;
+
+      drawScreen(oScreen, SCREEN_DW);
+    }
+
+  }
+
+  for (int i = 0; i < MAX_BLK_TYPES; i++) {
+    for (int j = 0; j < MAX_BLK_DEGREES; j++) {
+        delete setOfBlockObjects[i][j];
+    }
+  }
+
+  delete iScreen;
+  delete oScreen;
+  delete currBlk;
+
+  cout << "(nAlloc, nFree) = (" << Matrix::get_nAlloc() << ',' << Matrix::get_nFree() << ")" << endl;  
+  cout << "Program terminated!" << endl;
+
+  return 0;
+}
