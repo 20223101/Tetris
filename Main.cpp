@@ -250,7 +250,7 @@ int main(int argc, char *argv[]) {
   char key; //a,d,s,w, ,q
   int top = 0, left = 8; 
   bool newBlockNeeded = false; // is block fixed on floor?
-  bool exitAll = false;
+  bool gameSet = false;
 
   int idxBlockType = rand() % MAX_BLK_TYPES; //type 0~6
   int idxBlockDegree = 0; //회전 상태 초기화 (0~3:0,90,180,270)
@@ -381,7 +381,7 @@ int main(int argc, char *argv[]) {
       oScreen = new Matrix(iScreen);
       oScreen->paste(tempBlk2, top, left);
       if (tempBlk2->anyGreaterThan(1)){
-        exitAll = true;
+        gameSet = true;
         delete tempBlk2;
         drawScreen(oScreen, SCREEN_DW);
         break;
@@ -392,7 +392,7 @@ int main(int argc, char *argv[]) {
 
     }
 
-    if (exitAll) break;
+    if (gameSet) break;
 
   }
 
