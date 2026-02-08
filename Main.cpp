@@ -28,7 +28,7 @@ int tty_reset(int fd);   /* restore terminal's mode */
 char getch() {
   char ch;
   int n;
-  while (1) {
+  while (1) {    
     tty_raw(0);
     n = read(0, &ch, 1);
     tty_reset(0);
@@ -250,6 +250,7 @@ int main(int argc, char *argv[]) {
   char key; //a,d,s,w, ,q
   int top = 0, left = 8; 
   bool newBlockNeeded = false; // is block fixed on floor?
+  bool exitAll = false;
 
   int idxBlockType = rand() % MAX_BLK_TYPES; //type 0~6
   int idxBlockDegree = 0; //회전 상태 초기화 (0~3:0,90,180,270)
@@ -379,12 +380,22 @@ int main(int argc, char *argv[]) {
       delete oScreen;
       oScreen = new Matrix(iScreen);
       oScreen->paste(tempBlk2, top, left);
+      if (tempBlk2->anyGreaterThan(1)){
+        exitAll = true;
+        delete tempBlk2;
+        drawScreen(oScreen, SCREEN_DW);
+        break;
+      }
       delete tempBlk2;
 
       drawScreen(oScreen, SCREEN_DW);
+
     }
 
+    if (exitAll) break;
+
   }
+
 
   for (int i = 0; i < MAX_BLK_TYPES; i++) {
     for (int j = 0; j < MAX_BLK_DEGREES; j++) {
