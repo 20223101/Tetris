@@ -329,6 +329,7 @@ int main(int argc, char *argv[]) {
           else {
             idxBlockDegree--; //idxBlockdegree!=0라면 이전 각도로 돌아가면 됨
           }
+          delete currBlk;
           currBlk = new Matrix(setOfBlockObjects[idxBlockType][idxBlockDegree]);
           break;
         case ' ': 
