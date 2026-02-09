@@ -243,7 +243,10 @@ void deleteFullLines(Matrix *iScreen) {
 
 
 int main(int argc, char *argv[]) {
-  srand((unsigned int)time(NULL));  //처음 난수 생성, seed update
+  srand((unsigned int)time(NULL));  //처음 난수 생성, seed update 
+
+  registerInterrupt();  // auto down
+  registerAlarm();
 
   initSetOfBlockObjects();  // 1차원 배열로 저장된 블록을 2차원 배열
   
